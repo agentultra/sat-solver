@@ -7,25 +7,26 @@ cabal-version: 1.12
 name:           sat-solver
 version:        0.1.0.0
 description:    Please see the README on GitHub at <https://github.com/githubuser/sat-solver#readme>
-homepage:       https://github.com/githubuser/sat-solver#readme
-bug-reports:    https://github.com/githubuser/sat-solver/issues
-author:         Author name here
-maintainer:     example@example.com
-copyright:      2023 Author name here
+homepage:       https://github.com/agentultra/sat-solver#readme
+bug-reports:    https://github.com/agentultra/sat-solver/issues
+author:         See CONTRIBUTORS.md
+maintainer:     james@agentultra.com
+copyright:      2023 James King
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
     README.md
     CHANGELOG.md
+    CONTRIBUTORS.md
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/sat-solver
+  location: https://github.com/agentultra/sat-solver
 
 library
   exposed-modules:
-      Lib
+      Data.Algorithm.SAT
   other-modules:
       Paths_sat_solver
   hs-source-dirs:
