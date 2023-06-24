@@ -1,14 +1,15 @@
 name:                sat-solver
 version:             0.1.0.0
-github:              "githubuser/sat-solver"
+github:              "agentultra/sat-solver"
 license:             BSD3
-author:              "Author name here"
-maintainer:          "example@example.com"
-copyright:           "2023 Author name here"
+author:              "See CONTRIBUTORS.md"
+maintainer:          "james@agentultra.com"
+copyright:           "2023 James King"
 
 extra-source-files:
 - README.md
 - CHANGELOG.md
+- CONTRIBUTORS.md
 
 # Metadata used when publishing your package
 # synopsis:            Short description of your package
