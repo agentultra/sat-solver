@@ -1,7 +1,7 @@
 module Data.Algorithm.SAT where
 
 import Control.Monad.State
-import Control.Lens
+import Lens.Micro
 import Data.Map as M
 import Data.Maybe
 
