@@ -1,2 +1,5 @@
+
+import Data.Algorithm.SAT
+
 main :: IO ()
-main = putStrLn "Test suite not yet implemented"
+main = test_suite

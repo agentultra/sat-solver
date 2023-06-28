@@ -24,12 +24,16 @@ default-extensions:
 - DeriveFunctor
 - GeneralizedNewtypeDeriving
 - OverloadedStrings
+- TupleSections
+- ScopedTypeVariables
 
 dependencies:
 - base >= 4.7 && < 5
 - containers >= 0.6.7
 - microlens
 - mtl
+- QuickCheck
+- data-ordlist
 
 ghc-options:
 - -Wall
