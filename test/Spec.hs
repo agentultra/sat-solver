@@ -19,17 +19,19 @@ prop_disj n =
   counterexample ("f `disj` f' == " ++ show (f `disj` f')) $
   eval sigma (f `disj` f') === ((||) <$> eval sigma f <*> eval sigma f')
 
-single_example f = do
+singleExample :: Formula -> Solver (Formula, Formula)
+singleExample f = do
   f'  <- unitClausePropagation f
   f'' <- pureLitElimination f'
   return (f', f'')
 
-single_test =
+singleTest :: Property
+singleTest =
   let x0 = Var 0
       x1 = Var 1
       x2 = Var 2
       f = fromListLit [ [Pos x0], [Neg x0, Pos x1, Pos x2], [Pos x1, Neg x2], [Pos x0, Pos x1, Pos x2] ]
-      ((f', f''), a) = runSolver (single_example f) in
+      ((f', f''), a) = runSolver (singleExample f) in
     counterexample ("assignment: " ++ show a) $
     counterexample ("f:   " ++ show f) $
     counterexample ("f':  " ++ show f') $
@@ -40,4 +42,4 @@ main :: IO ()
 main = hspec $ do
   prop "conj" prop_conj
   prop "disj" prop_disj
-  prop "single test" single_test
+  prop "single test" singleTest
