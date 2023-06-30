@@ -119,16 +119,16 @@ genAssignment :: Int -> Gen Assignment
 genAssignment n =
   Assgn <$> (M.fromList <$> forM [0..n] (\i -> (Var i,) <$> arbitrary))
 
-newtype M a = M { runM :: State Assignment a }
+newtype Solver a = Solver { getSolver :: State Assignment a }
   deriving (Functor,Applicative,Monad)
 
-runSolver :: M a -> (a, Assignment)
-runSolver m = runState (runM m) (Assgn M.empty)
+runSolver :: Solver a -> (a, Assignment)
+runSolver m = runState (getSolver m) (Assgn M.empty)
 
-assign :: Var -> Bool -> M ()
-assign v b = M $ modify $ assignment %~ M.insert v b
+assign :: Var -> Bool -> Solver ()
+assign v b = Solver $ modify $ assignment %~ M.insert v b
 
-satisfy :: Lit -> M ()
+satisfy :: Lit -> Solver ()
 satisfy (Pos v) = assign v True
 satisfy (Neg v) = assign v False
 
@@ -162,8 +162,8 @@ pruneFalseLit (Assgn asgn) (Formula f) =
 
 -- run a function that updates the assignment and returns a formula
 -- and use the new assignments to simplify the resulting formula
-updateAssignment :: M Formula -> M Formula
-updateAssignment (M m) = M $ do
+updateAssignment :: Solver Formula -> Solver Formula
+updateAssignment (Solver m) = Solver $ do
   (Assgn asgn) <- get
   put (Assgn M.empty)
   Formula f <- m
@@ -173,7 +173,7 @@ updateAssignment (M m) = M $ do
   return $ pruneFalseLit a' (Formula f')
 
 -- in x /\ ... x is a unit clause
-unitClausePropagation :: Formula -> M Formula
+unitClausePropagation :: Formula -> Solver Formula
 unitClausePropagation (Formula fs) = updateAssignment $ do
   fs' <- forM fs $ \clause ->
     case isUnitClause clause of
@@ -182,9 +182,9 @@ unitClausePropagation (Formula fs) = updateAssignment $ do
   return $ Formula $ catMaybes fs'
 
 -- a pure literal is when a variable appears only as a positive literal or a negative literal
-pureLitElimination :: Formula -> M Formula
+pureLitElimination :: Formula -> Solver Formula
 pureLitElimination f@(Formula fs) = updateAssignment $ do
-    M $ modify $ assignment %~ insertLit
+    Solver $ modify $ assignment %~ insertLit
     return $ Formula fs'
   where
     isPure (p, n) = p == 0 || n == 0
@@ -193,5 +193,5 @@ pureLitElimination f@(Formula fs) = updateAssignment $ do
     insertLit m = M.map isPosLit pureLit `M.union` m
     fs' = filter (\c -> M.null (M.intersection c pureLit)) fs
 
-instance Show a => Show (M a) where
-  show (M a) = show (runState a (Assgn M.empty))
+instance Show a => Show (Solver a) where
+  show (Solver a) = show (runState a (Assgn M.empty))
