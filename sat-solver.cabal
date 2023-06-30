@@ -66,6 +66,7 @@ test-suite sat-solver-test
     , base >=4.7 && <5
     , containers >=0.6.7
     , data-ordlist
+    , hspec
     , microlens
     , mtl
     , sat-solver
