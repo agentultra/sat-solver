@@ -36,7 +36,6 @@ fromLit (Neg v) = (v, False)
 --   a literal is a variable with or without negation
 newtype Formula = Formula { getClauses :: [Map Var Bool] }
   deriving (Eq, Ord)
-  -- deriving Show
 
 newtype Assignment = Assgn (Map Var Bool)
   deriving Show
