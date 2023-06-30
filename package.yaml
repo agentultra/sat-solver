@@ -31,6 +31,8 @@ dependencies:
 - base >= 4.7 && < 5
 - containers >= 0.6.7
 - microlens
+- microlens-mtl
+- microlens-th
 - mtl
 - QuickCheck
 - data-ordlist

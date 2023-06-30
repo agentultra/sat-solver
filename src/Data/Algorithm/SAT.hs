@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Data.Algorithm.SAT where
 
 import Control.Monad.State
@@ -7,6 +9,8 @@ import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Monoid
 import Lens.Micro
+import Lens.Micro.Mtl hiding (assign)
+import Lens.Micro.TH
 import qualified Data.List.Ordered as Ord
 import Test.QuickCheck
 
@@ -118,14 +122,34 @@ genAssignment :: Int -> Gen Assignment
 genAssignment n =
   Assgn <$> (M.fromList <$> forM [0..n] (\i -> (Var i,) <$> arbitrary))
 
-newtype Solver a = Solver { getSolver :: State Assignment a }
-  deriving (Functor,Applicative,Monad)
+data SolverState
+  = SolverState
+  { _assignments :: Assignment
+  , _stack :: [Assignment]
+  }
+  deriving Show
 
-runSolver :: Solver a -> (a, Assignment)
-runSolver m = runState (getSolver m) (Assgn M.empty)
+makeLenses ''SolverState
+
+initSolverState :: SolverState
+initSolverState
+  = SolverState
+  { _assignments = Assgn M.empty
+  , _stack = mempty
+  }
+
+newtype Solver a = Solver { getSolver :: State SolverState a }
+  deriving ( Functor
+           , Applicative
+           , Monad
+           , MonadState SolverState
+           )
+
+runSolver :: Solver a -> (a, SolverState)
+runSolver solver = runState (getSolver solver) initSolverState
 
 assign :: Var -> Bool -> Solver ()
-assign v b = Solver $ modify $ assignment %~ M.insert v b
+assign v b = assignments %= (assignment %~ M.insert v b)
 
 satisfy :: Lit -> Solver ()
 satisfy (Pos v) = assign v True
@@ -163,11 +187,11 @@ pruneFalseLit (Assgn asgn) (Formula f) =
 -- and use the new assignments to simplify the resulting formula
 updateAssignment :: Solver Formula -> Solver Formula
 updateAssignment (Solver m) = Solver $ do
-  (Assgn asgn) <- get
-  put (Assgn M.empty)
+  (Assgn asgn) <- use assignments
+  assignments .= Assgn M.empty
   Formula f <- m
-  a'@(Assgn asgn') <- get
-  put (Assgn $ asgn' `M.union` asgn)
+  a'@(Assgn asgn') <- use assignments
+  assignments .= Assgn (asgn' `M.union` asgn)
   let f' = filter (not . hasTrueLit a') f
   return $ pruneFalseLit a' (Formula f')
 
@@ -183,7 +207,7 @@ unitClausePropagation (Formula fs) = updateAssignment $ do
 -- a pure literal is when a variable appears only as a positive literal or a negative literal
 pureLitElimination :: Formula -> Solver Formula
 pureLitElimination f@(Formula fs) = updateAssignment $ do
-    Solver $ modify $ assignment %~ insertLit
+    assignments %= (assignment %~ insertLit)
     return $ Formula fs'
   where
     isPure (p, n) = p == 0 || n == 0
@@ -193,4 +217,4 @@ pureLitElimination f@(Formula fs) = updateAssignment $ do
     fs' = filter (\c -> M.null (M.intersection c pureLit)) fs
 
 instance Show a => Show (Solver a) where
-  show (Solver a) = show (runState a (Assgn M.empty))
+  show (Solver a) = show (runState a initSolverState)
