@@ -2,10 +2,13 @@
 
 module Data.Algorithm.SAT where
 
+import Control.Applicative
 import Control.Monad.State
 import qualified Data.List as L
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Set (Set)
+import qualified Data.Set as S
 import Data.Maybe
 import Data.Monoid
 import Lens.Micro
@@ -44,6 +47,16 @@ newtype Formula = Formula { getClauses :: [Map Var Bool] }
 newtype Assignment = Assgn (Map Var Bool)
   deriving Show
 
+data SolverState
+  = SolverState
+  { _assignments :: Assignment
+  , _guesses :: Int
+  , _simplifications :: Int
+  }
+  deriving Show
+
+makeLenses ''SolverState
+
 showClause :: Map Var Bool -> String
 showClause fs
   | null fs = "false"
@@ -58,10 +71,16 @@ assignment :: Lens' Assignment (Map Var Bool)
 assignment f (Assgn m) = Assgn <$> f m
 
 test :: Assignment -> Var -> Bool -> Maybe Bool
-test (Assgn m) v p = fmap (/= p) . M.lookup v $ m
+test (Assgn m) v p = fmap (== p) . M.lookup v $ m
 
 eval :: Assignment -> Formula -> Maybe Bool
 eval asgn (Formula fs) = and <$> mapM (fmap or . M.traverseWithKey (test asgn)) fs
+
+-- Evaluate formula on partial assignment and returns false if the assignment
+-- cannot guarantee that the formula evaluates to true
+evalPartial :: Assignment -> Formula -> Bool
+evalPartial asgn (Formula fs) =
+  and $ map (or . M.map (fromMaybe False) . M.mapWithKey (test asgn)) fs
 
 conj :: Formula -> Formula -> Formula
 conj (Formula xs) (Formula ys) = mkFormula $ xs ++ ys
@@ -77,8 +96,6 @@ disjClause mx my = do
 disj :: Formula -> Formula -> Formula
 disj (Formula xs) (Formula ys) =
   Formula $ Ord.nubSort $ catMaybes [ disjClause x y | x <- xs, y <- ys ]
-
-data FmlAssgnPair = FAP Formula Assignment
 
 genClause :: Int -> Gen (Map Var Bool)
 genClause n = do
@@ -100,14 +117,6 @@ instance Arbitrary Assignment where
   arbitrary = genAssignment =<< arbitrary
   shrink (Assgn fs) = Assgn <$> shrink fs
 
-instance Arbitrary FmlAssgnPair where
-  arbitrary = do
-    Small n <- arbitrary
-    assgn <- M.fromList <$> forM [0..n] (\i -> (Var i,) <$> arbitrary)
-    Small (c :: Int) <- arbitrary
-    fs <- forM [0..c] $ const $ genClause n
-    return $ FAP (Formula fs) (Assgn assgn)
-
 mkFormula :: [Map Var Bool] -> Formula
 mkFormula fs
   | any null fs = Formula [M.empty]
@@ -122,31 +131,31 @@ genAssignment :: Int -> Gen Assignment
 genAssignment n =
   Assgn <$> (M.fromList <$> forM [0..n] (\i -> (Var i,) <$> arbitrary))
 
-data SolverState
-  = SolverState
-  { _assignments :: Assignment
-  , _stack :: [Assignment]
-  }
-  deriving Show
-
-makeLenses ''SolverState
+genAssignmentFor :: Formula -> Gen Assignment
+genAssignmentFor f = do
+  vals <- forM (freeVars f) $ \v -> (v,) <$> arbitrary
+  return $ Assgn $ M.fromList vals
 
 initSolverState :: SolverState
 initSolverState
   = SolverState
   { _assignments = Assgn M.empty
-  , _stack = mempty
+  -- , _stack = mempty
   }
 
-newtype Solver a = Solver { getSolver :: State SolverState a }
+newtype Solver a = Solver { getSolver :: StateT SolverState Maybe a }
   deriving ( Functor
            , Applicative
+           , Alternative
            , Monad
            , MonadState SolverState
            )
 
-runSolver :: Solver a -> (a, SolverState)
-runSolver solver = runState (getSolver solver) initSolverState
+runSolver :: Solver a -> Maybe (a, Assignment)
+runSolver solver = runStateT (getSolver solver) initSolverState & mapped._2 %~ _assignments
+
+runSolver' :: Solver a -> (a, Assignment)
+runSolver' = fromJust . runSolver
 
 assign :: Var -> Bool -> Solver ()
 assign v b = assignments %= (assignment %~ M.insert v b)
@@ -167,6 +176,9 @@ varOccurrences (Formula fs) =
     countOne :: Bool -> (Sum Int, Sum Int)
     countOne True  = (1, 0)
     countOne False = (0, 1)
+
+freeVars :: Formula -> [Var]
+freeVars = M.keys . varOccurrences
 
 hasTrueLit :: Assignment -> Map Var Bool -> Bool
 hasTrueLit (Assgn a) cl =
@@ -217,4 +229,46 @@ pureLitElimination f@(Formula fs) = updateAssignment $ do
     fs' = filter (\c -> M.null (M.intersection c pureLit)) fs
 
 instance Show a => Show (Solver a) where
-  show (Solver a) = show (runState a initSolverState)
+  show (Solver a) = show (runStateT a initSolverState)
+
+progress :: Solver a -> Solver (a, Bool)
+progress (Solver m) = Solver $ do
+  Assgn sigma  <- use assignments
+  r <- m
+  Assgn sigma' <- use assignments
+  return (r, M.size sigma /= M.size sigma')
+
+assigned :: Assignment -> Var -> Bool
+assigned (Assgn m) v = v `M.member` m
+
+failIfUnsat :: Maybe Formula -> Solver (Maybe Formula)
+failIfUnsat x = Nothing <$ guard (isNothing x)
+
+true :: Formula
+true = Formula []
+false :: Formula
+false = Formula [M.empty]
+
+solve' :: Formula -> [Var] -> Solver (Maybe Formula)
+solve' f vs =
+  if f == true then return Nothing
+    else if f == false then return (Just f)
+    else do
+      simplifications += 1
+      (f', b) <- progress $ unitClausePropagation f >>= pureLitElimination
+      if b
+        then solve' f' vs
+        else do
+          sigma <- use assignments
+          case dropWhile (assigned sigma) vs of
+            [] -> return $ Just f'
+            v : vs' -> do
+              guesses += 1
+              (assign v True >> (failIfUnsat =<< solve' f' vs')) <|>
+                (assign v False >> (failIfUnsat =<< solve' f' vs')) <|>
+                return (Just f')
+
+-- Given a formula `f`, try to find a true value assignment to the
+-- variables it contains so that `f` will evaluate to true
+solve :: Formula -> Solver (Maybe Formula)
+solve f = solve' f (freeVars f)

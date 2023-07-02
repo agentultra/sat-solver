@@ -1,4 +1,6 @@
 import Data.Algorithm.SAT
+import Data.Maybe
+import qualified Data.Map as M
 import Test.Hspec
 import Test.Hspec.QuickCheck
 import Test.QuickCheck
@@ -19,6 +21,25 @@ prop_disj n =
   counterexample ("f `disj` f' == " ++ show (f `disj` f')) $
   eval sigma (f `disj` f') === ((||) <$> eval sigma f <*> eval sigma f')
 
+prop_solve_spec' :: Assignment -> Formula -> Maybe Formula -> Property
+prop_solve_spec' _as f (Just f') =
+  forAll (genAssignmentFor f) $ \as ->
+    counterexample ("subst:      " ++ show (map (M.mapWithKey (test as)) $ getClauses f)) $
+    eval as f === Just False .&&.
+    eval as f' === Just False
+prop_solve_spec' as  f Nothing = evalPartial as f === True
+
+prop_solve_spec :: Formula -> Property
+prop_solve_spec f =
+  let (f', a) = fromJust $ runSolver (solve f) in
+    counterexample ("assignment: " ++ show a) $
+    counterexample ("unsat core: " ++ show f') $
+    counterexample ("free vars:  " ++ show (freeVars f)) $
+    counterexample ("clauses:    " ++ show (getClauses f)) $
+    counterexample ("subst:      " ++ show (map (M.mapWithKey (test a)) $ getClauses f)) $
+
+    prop_solve_spec' a f f'
+
 singleExample :: Formula -> Solver (Formula, Formula)
 singleExample f = do
   f'  <- unitClausePropagation f
@@ -31,15 +52,19 @@ singleTest =
       x1 = Var 1
       x2 = Var 2
       f = fromListLit [ [Pos x0], [Neg x0, Pos x1, Pos x2], [Pos x1, Neg x2], [Pos x0, Pos x1, Pos x2] ]
-      ((f', f''), a) = runSolver (singleExample f) in
+      ((f', f''), a) = runSolver' (singleExample f) in
     counterexample ("assignment: " ++ show a) $
-    counterexample ("f:   " ++ show f) $
-    counterexample ("f':  " ++ show f') $
-    counterexample ("f'': " ++ show f'') $
-    f === f'
+    f'  === fromListLit [ [Pos x1, Neg x2], [Pos x1, Pos x2] ] .&&.
+    f'' === true
 
 main :: IO ()
-main = hspec $ do
-  prop "conj" prop_conj
-  prop "disj" prop_disj
-  prop "single test" singleTest
+main = do
+  hspec $ do
+    prop "conj" prop_conj
+    prop "disj" prop_disj
+    prop "single test" singleTest
+    prop "solve spec" prop_solve_spec
+  putStrLn "-----"
+  sample $ do
+    a <- arbitrary
+    return (a, runSolver (solve a))
