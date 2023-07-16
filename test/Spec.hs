@@ -25,8 +25,8 @@ prop_solve_spec' :: Assignment -> Formula -> Maybe Formula -> Property
 prop_solve_spec' _as f (Just f') =
   forAll (genAssignmentFor f) $ \as ->
     counterexample ("subst:      " ++ show (map (M.mapWithKey (test as)) $ getClauses f)) $
-    eval as f === Just False .&&.
-    eval as f' === Just False
+    counterexample "f" (eval as f === Just False) .&&.
+    counterexample "f'" (eval as f' === Just False)
 prop_solve_spec' as  f Nothing = evalPartial as f === True
 
 prop_solve_spec :: Formula -> Property
@@ -39,6 +39,26 @@ prop_solve_spec f =
     counterexample ("subst:      " ++ show (map (M.mapWithKey (test a)) $ getClauses f)) $
 
     prop_solve_spec' a f f'
+
+test_simplification_on_contr :: SpecWith ()
+test_simplification_on_contr =
+  it "unitClausePropagation on contradiction" $
+    runSolver' (unitClausePropagation f) `shouldBe` (false, Assgn $ M.fromList [(x0, True)])
+  where
+    f = fromListLit [ [Pos x0], [Neg x0] ]
+    x0 = Var 0
+
+test_weirdly_unsat :: SpecWith ()
+test_weirdly_unsat =
+  it "check systematic simplification" $
+    runSolver' (solve f) `shouldBe` (Nothing, Assgn assgn)
+  where
+    f = fromListLit [ [Pos x0, Neg x1, Pos x2], [Neg x0, Pos x1, Neg x2] ]
+    x0 = Var 0
+    x1 = Var 1
+    x2 = Var 2
+    assgn = M.fromList [(x0, True), (x1, True), (x2,False)]
+
 
 singleExample :: Formula -> Solver (Formula, Formula)
 singleExample f = do
@@ -64,6 +84,8 @@ main = do
     prop "disj" prop_disj
     prop "single test" singleTest
     prop "solve spec" prop_solve_spec
+    test_simplification_on_contr
+    test_weirdly_unsat
   putStrLn "-----"
   sample $ do
     a <- arbitrary

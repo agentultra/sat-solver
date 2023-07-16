@@ -45,7 +45,7 @@ newtype Formula = Formula { getClauses :: [Map Var Bool] }
   deriving (Eq, Ord)
 
 newtype Assignment = Assgn (Map Var Bool)
-  deriving Show
+  deriving (Eq, Show)
 
 data SolverState
   = SolverState
@@ -140,7 +140,8 @@ initSolverState :: SolverState
 initSolverState
   = SolverState
   { _assignments = Assgn M.empty
-  -- , _stack = mempty
+  , _guesses = 0
+  , _simplifications = 0
   }
 
 newtype Solver a = Solver { getSolver :: StateT SolverState Maybe a }
@@ -163,6 +164,19 @@ assign v b = assignments %= (assignment %~ M.insert v b)
 satisfy :: Lit -> Solver ()
 satisfy (Pos v) = assign v True
 satisfy (Neg v) = assign v False
+
+tryAssign :: Var -> Bool -> Solver Bool
+tryAssign v b = do
+  a <- use $ assignments.assignment
+  if v `M.member` a then
+     return False
+  else do
+     assignments %= (assignment %~ M.insert v b)
+     return True
+
+trySatisfy :: Lit -> Solver Bool
+trySatisfy (Pos v) = tryAssign v True
+trySatisfy (Neg v) = tryAssign v False
 
 isUnitClause :: Map Var Bool -> Maybe Lit
 isUnitClause clause
@@ -212,7 +226,10 @@ unitClausePropagation :: Formula -> Solver Formula
 unitClausePropagation (Formula fs) = updateAssignment $ do
   fs' <- forM fs $ \clause ->
     case isUnitClause clause of
-      Just l -> satisfy l >> return Nothing
+      Just l -> do
+        b <- trySatisfy l
+        if b then return Nothing
+          else return $ Just clause
       Nothing -> return $ Just clause
   return $ Formula $ catMaybes fs'
 
@@ -249,26 +266,29 @@ true = Formula []
 false :: Formula
 false = Formula [M.empty]
 
-solve' :: Formula -> [Var] -> Solver (Maybe Formula)
-solve' f vs =
+assignIn :: Var -> Bool -> Formula -> Solver Formula
+assignIn v b f = updateAssignment (f <$ assign v b)
+
+solve' :: [Var] -> Formula -> Solver (Maybe Formula)
+solve' vs f =
   if f == true then return Nothing
     else if f == false then return (Just f)
     else do
       simplifications += 1
       (f', b) <- progress $ unitClausePropagation f >>= pureLitElimination
       if b
-        then solve' f' vs
+        then solve' vs f'
         else do
           sigma <- use assignments
           case dropWhile (assigned sigma) vs of
             [] -> return $ Just f'
             v : vs' -> do
               guesses += 1
-              (assign v True >> (failIfUnsat =<< solve' f' vs')) <|>
-                (assign v False >> (failIfUnsat =<< solve' f' vs')) <|>
+              (failIfUnsat =<< solve' vs' =<< assignIn v True f') <|>
+                (failIfUnsat =<< solve' vs' =<< assignIn v False f') <|>
                 return (Just f')
 
 -- Given a formula `f`, try to find a true value assignment to the
 -- variables it contains so that `f` will evaluate to true
 solve :: Formula -> Solver (Maybe Formula)
-solve f = solve' f (freeVars f)
+solve f = solve' (freeVars f) f
